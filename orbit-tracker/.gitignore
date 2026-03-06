@@ -25,4 +25,4 @@ Thumbs.db
 .env
 
 # Orekit data
-src/main/resources/orekit-data-main.orekit-data
+src/main/resources/orekit-data-main
