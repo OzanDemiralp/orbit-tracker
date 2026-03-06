@@ -13,10 +13,13 @@ public class CelestrakClient {
         this.webClient = webClient;
     }
 
-    public Mono<String> getIssTle(){
+    public Mono<String> getTleDataByGroup(String group) {
         return this.webClient.get()
-                .uri("/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle")
+                .uri(uriBuilder -> uriBuilder
+                        .path("/NORAD/elements/gp.php")
+                        .queryParam("GROUP", group)
+                        .queryParam("FORMAT", "tle")
+                        .build())
                 .retrieve()
                 .bodyToMono(String.class);
-    }
-}
+    }}
