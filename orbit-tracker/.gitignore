@@ -23,3 +23,6 @@ Thumbs.db
 
 # Environment
 .env
+
+# Orekit data
+src/main/resources/orekit-data-main.orekit-data
