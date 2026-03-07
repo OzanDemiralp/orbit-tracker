@@ -64,8 +64,9 @@ public class OrbitService {
                     double latitude = FastMath.toDegrees(point.getLatitude());
                     double longitude = FastMath.toDegrees(point.getLongitude());
                     double altitude = point.getAltitude() / 1000.0;
+                    double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
 
-                    return new SatelliteCurrentPositionResponseDTO(latitude, longitude, altitude);
+                    return new SatelliteCurrentPositionResponseDTO(latitude, longitude, altitude, velocity);
                 });
     }
 }
