@@ -11,7 +11,6 @@ import org.orekit.bodies.BodyShape;
 import org.orekit.bodies.GeodeticPoint;
 import org.orekit.bodies.OneAxisEllipsoid;
 import org.orekit.frames.Frame;
-import org.orekit.frames.Frames;
 import org.orekit.frames.FramesFactory;
 import org.orekit.frames.StaticTransform;
 import org.orekit.propagation.SpacecraftState;
@@ -24,7 +23,6 @@ import org.orekit.utils.IERSConventions;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -39,56 +37,20 @@ public class OrbitService {
     public Mono<SatelliteCurrentPositionResponseDTO> getCurrentSatellitePosition(SatelliteCurrentPositionRequestDTO request){
         return celestrakClient.getTleDataByGroup(request.satelliteGroup())
                 .map(rawTle -> {
-                    // Find tle
-                    List<SatelliteDTO> allSatellites =  tleParserService.parseTleResponse(rawTle);
-                    SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites,
-                            request.satelliteName());
+                    OrbitContext orbitContext = prepareOrbitContext(rawTle, request.satelliteName());
+                    AbsoluteDate currentDate = new AbsoluteDate(new Date(), TimeScalesFactory.getUTC());
 
-                    // Propagator, Frame and BodyShape
-                    TLE tle = new TLE(targetSatellite.tleLine1(), targetSatellite.tleLine2());
-                    TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
-                    Frame itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, true);
-                    BodyShape earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-                            Constants.WGS84_EARTH_FLATTENING, itrf);
-
-                    // Current position in Teme
-                    AbsoluteDate now = new AbsoluteDate(new Date(), TimeScalesFactory.getUTC());
-                    SpacecraftState currentState = propagator.propagate(now);
-                    Vector3D positionInTeme = currentState.getPVCoordinates().getPosition();
-
-                    // Transform position to itrf
-                    StaticTransform transform = FramesFactory.getTEME().getStaticTransformTo(itrf, now);
-                    Vector3D positionInItrf = transform.transformPosition(positionInTeme);
-                    GeodeticPoint point = earth.transform(positionInItrf, itrf, now);
-
-                    // Results
-                    Instant timestamp = currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant();
-                    double latitude = FastMath.toDegrees(point.getLatitude());
-                    double longitude = FastMath.toDegrees(point.getLongitude());
-                    double altitude = point.getAltitude() / 1000.0;
-                    double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
-
-                    return new SatelliteCurrentPositionResponseDTO(timestamp, latitude, longitude, altitude, velocity);
+                    return calculatePositionAtDate(orbitContext, currentDate);
                 });
     }
 
     public Mono<List<SatelliteCurrentPositionResponseDTO>> getTrajectory(SatelliteCurrentPositionRequestDTO request){
         return celestrakClient.getTleDataByGroup(request.satelliteGroup())
                 .map(rawTle -> {
-                    // Find tle
-                    List<SatelliteDTO> allSatellites =  tleParserService.parseTleResponse(rawTle);
-                    SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites,
-                            request.satelliteName());
-
-                    // Propagator, Frame and BodyShape
-                    TLE tle = new TLE(targetSatellite.tleLine1(), targetSatellite.tleLine2());
-                    TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
-                    Frame itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, true);
-                    BodyShape earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-                            Constants.WGS84_EARTH_FLATTENING, itrf);
+                    OrbitContext orbitContext = prepareOrbitContext(rawTle, request.satelliteName());
 
                     // Period and step size
-                    double period = propagator.getInitialState().getOrbit().getKeplerianPeriod();
+                    double period = orbitContext.propagator().getInitialState().getOrbit().getKeplerianPeriod();
                     double duration = Math.min(period, 86400.0);
                     int steps = 100;
                     double stepSize = duration / steps;
@@ -99,31 +61,41 @@ public class OrbitService {
 
                     for (int i = 0; i <= steps; i++) {
                         AbsoluteDate targetDate = startDate.shiftedBy(i * stepSize);
-                        SpacecraftState currentState = propagator.propagate(targetDate);
-
-                        // Transform position to itrf
-                        StaticTransform transform = FramesFactory.getTEME().getStaticTransformTo(itrf, targetDate);
-                        Vector3D posItrf = transform.transformPosition(currentState.getPVCoordinates().getPosition());
-                        GeodeticPoint point = earth.transform(posItrf, itrf, targetDate);
-
-                        // Results
-                        Instant timestamp = currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant();
-                        double latitude = FastMath.toDegrees(point.getLatitude());
-                        double longitude = FastMath.toDegrees(point.getLongitude());
-                        double altitude = point.getAltitude() / 1000.0;
-                        double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
-
-                        trajectory.add(new SatelliteCurrentPositionResponseDTO(
-                                timestamp,
-                                latitude,
-                                longitude,
-                                altitude,
-                                velocity
-                        ));
+                        trajectory.add(calculatePositionAtDate(orbitContext, targetDate));
                     }
-
                     return trajectory;
                 });
+    }
+
+    private SatelliteCurrentPositionResponseDTO calculatePositionAtDate(OrbitContext orbitContext, AbsoluteDate date
+                                                                        ) {
+        SpacecraftState currentState = orbitContext.propagator().propagate(date);
+        StaticTransform transform = FramesFactory.getTEME().getStaticTransformTo(orbitContext.itrf(), date);
+        Vector3D positionAtItrf = transform.transformPosition(currentState.getPVCoordinates().getPosition());
+        GeodeticPoint point = orbitContext.earth().transform(positionAtItrf, orbitContext.itrf(), date);
+
+        return new SatelliteCurrentPositionResponseDTO(
+                currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant(),
+                FastMath.toDegrees(point.getLatitude()),
+                FastMath.toDegrees(point.getLongitude()),
+                point.getAltitude() / 1000.0,
+                currentState.getPVCoordinates().getVelocity().getNorm() / 1000.0
+        );
+    }
+
+    private record OrbitContext(TLEPropagator propagator, BodyShape earth, Frame itrf) {}
+
+    private OrbitContext prepareOrbitContext(String rawTle, String satelliteName) {
+        List<SatelliteDTO> allSatellites = tleParserService.parseTleResponse(rawTle);
+        SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites, satelliteName);
+
+        TLE tle = new TLE(targetSatellite.tleLine1(), targetSatellite.tleLine2());
+        TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
+        Frame itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, true);
+        BodyShape earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+                Constants.WGS84_EARTH_FLATTENING, itrf);
+
+        return new OrbitContext(propagator, earth, itrf);
     }
 }
 
