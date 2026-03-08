@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -36,11 +37,10 @@ public class OrbitService {
     private final TleParserService tleParserService;
 
     public Mono<SatelliteCurrentPositionResponseDTO> getCurrentSatellitePosition(SatelliteCurrentPositionRequestDTO request){
-
         return celestrakClient.getTleDataByGroup(request.satelliteGroup())
-                .map(rawTLe -> {
+                .map(rawTle -> {
                     // Find tle
-                    List<SatelliteDTO> allSatellites =  tleParserService.parseTleResponse(rawTLe);
+                    List<SatelliteDTO> allSatellites =  tleParserService.parseTleResponse(rawTle);
                     SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites,
                             request.satelliteName());
 
@@ -69,6 +69,60 @@ public class OrbitService {
                     double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
 
                     return new SatelliteCurrentPositionResponseDTO(timestamp, latitude, longitude, altitude, velocity);
+                });
+    }
+
+    public Mono<List<SatelliteCurrentPositionResponseDTO>> getTrajectory(SatelliteCurrentPositionRequestDTO request){
+        return celestrakClient.getTleDataByGroup(request.satelliteGroup())
+                .map(rawTle -> {
+                    // Find tle
+                    List<SatelliteDTO> allSatellites =  tleParserService.parseTleResponse(rawTle);
+                    SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites,
+                            request.satelliteName());
+
+                    // Propagator, Frame and BodyShape
+                    TLE tle = new TLE(targetSatellite.tleLine1(), targetSatellite.tleLine2());
+                    TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
+                    Frame itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, true);
+                    BodyShape earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+                            Constants.WGS84_EARTH_FLATTENING, itrf);
+
+                    // Period and step size
+                    double period = propagator.getInitialState().getOrbit().getKeplerianPeriod();
+                    double duration = Math.min(period, 86400.0);
+                    int steps = 100;
+                    double stepSize = duration / steps;
+
+                    // Positions
+                    List<SatelliteCurrentPositionResponseDTO> trajectory = new ArrayList<>();
+                    AbsoluteDate startDate = new AbsoluteDate(new Date(), TimeScalesFactory.getUTC());
+
+                    for (int i = 0; i <= steps; i++) {
+                        AbsoluteDate targetDate = startDate.shiftedBy(i * stepSize);
+                        SpacecraftState currentState = propagator.propagate(targetDate);
+
+                        // Transform position to itrf
+                        StaticTransform transform = FramesFactory.getTEME().getStaticTransformTo(itrf, targetDate);
+                        Vector3D posItrf = transform.transformPosition(currentState.getPVCoordinates().getPosition());
+                        GeodeticPoint point = earth.transform(posItrf, itrf, targetDate);
+
+                        // Results
+                        Instant timestamp = currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant();
+                        double latitude = FastMath.toDegrees(point.getLatitude());
+                        double longitude = FastMath.toDegrees(point.getLongitude());
+                        double altitude = point.getAltitude() / 1000.0;
+                        double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
+
+                        trajectory.add(new SatelliteCurrentPositionResponseDTO(
+                                timestamp,
+                                latitude,
+                                longitude,
+                                altitude,
+                                velocity
+                        ));
+                    }
+
+                    return trajectory;
                 });
     }
 }

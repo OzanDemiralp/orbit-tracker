@@ -36,4 +36,9 @@ public class SatelliteController {
         return orbitService.getCurrentSatellitePosition(requestDTO);
         }
 
+        @PostMapping("/trajectory")
+    public Mono<List<SatelliteCurrentPositionResponseDTO>> getTrajectory(@RequestBody SatelliteCurrentPositionRequestDTO requestDTO){
+        return orbitService.getTrajectory(requestDTO);
+        }
+
 }
