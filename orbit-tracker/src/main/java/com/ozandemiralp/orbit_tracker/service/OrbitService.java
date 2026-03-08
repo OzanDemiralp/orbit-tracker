@@ -24,6 +24,7 @@ import org.orekit.utils.IERSConventions;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -61,12 +62,13 @@ public class OrbitService {
                     GeodeticPoint point = earth.transform(positionInItrf, itrf, now);
 
                     // Results
+                    Instant timestamp = currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant();
                     double latitude = FastMath.toDegrees(point.getLatitude());
                     double longitude = FastMath.toDegrees(point.getLongitude());
                     double altitude = point.getAltitude() / 1000.0;
                     double velocity = currentState.getPVCoordinates().getVelocity().getNorm() / 1000;
 
-                    return new SatelliteCurrentPositionResponseDTO(latitude, longitude, altitude, velocity);
+                    return new SatelliteCurrentPositionResponseDTO(timestamp, latitude, longitude, altitude, velocity);
                 });
     }
 }
