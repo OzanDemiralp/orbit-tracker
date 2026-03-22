@@ -70,7 +70,7 @@ public class OrbitService {
     private SatelliteCurrentPositionResponseDTO calculatePositionAtDate(OrbitContext orbitContext, AbsoluteDate date
                                                                         ) {
         SpacecraftState currentState = orbitContext.propagator().propagate(date);
-        StaticTransform transform = FramesFactory.getTEME().getStaticTransformTo(orbitContext.itrf(), date);
+        StaticTransform transform = orbitContext.teme.getStaticTransformTo(orbitContext.itrf(), date);
         Vector3D positionAtItrf = transform.transformPosition(currentState.getPVCoordinates().getPosition());
         GeodeticPoint point = orbitContext.earth().transform(positionAtItrf, orbitContext.itrf(), date);
 
@@ -78,24 +78,24 @@ public class OrbitService {
                 currentState.getDate().toDate(TimeScalesFactory.getUTC()).toInstant(),
                 FastMath.toDegrees(point.getLatitude()),
                 FastMath.toDegrees(point.getLongitude()),
-                point.getAltitude() / 1000.0,
+                point.getAltitude(),
                 currentState.getPVCoordinates().getVelocity().getNorm() / 1000.0
         );
     }
 
-    private record OrbitContext(TLEPropagator propagator, BodyShape earth, Frame itrf) {}
+    private record OrbitContext(TLEPropagator propagator, BodyShape earth, Frame itrf, Frame teme) {}
 
     private OrbitContext prepareOrbitContext(String rawTle, String satelliteName) {
         List<SatelliteDTO> allSatellites = tleParserService.parseTleResponse(rawTle);
         SatelliteDTO targetSatellite = tleParserService.findSatelliteByName(allSatellites, satelliteName);
-
         TLE tle = new TLE(targetSatellite.tleLine1(), targetSatellite.tleLine2());
         TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
         Frame itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, true);
+        Frame teme = FramesFactory.getTEME();
         BodyShape earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
                 Constants.WGS84_EARTH_FLATTENING, itrf);
 
-        return new OrbitContext(propagator, earth, itrf);
+        return new OrbitContext(propagator, earth, itrf, teme);
     }
 }
 

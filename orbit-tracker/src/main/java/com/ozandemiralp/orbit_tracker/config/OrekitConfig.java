@@ -3,6 +3,9 @@ package com.ozandemiralp.orbit_tracker.config;
 import jakarta.annotation.PostConstruct;
 import org.orekit.data.DataContext;
 import org.orekit.data.DirectoryCrawler;
+import org.orekit.frames.FramesFactory;
+import org.orekit.time.TimeScalesFactory;
+import org.orekit.utils.IERSConventions;
 import org.springframework.context.annotation.Configuration;
 
 import java.io.File;
@@ -16,5 +19,12 @@ public class OrekitConfig {
         DataContext.getDefault()
                 .getDataProvidersManager()
                 .addProvider(new DirectoryCrawler(orekitData));
+
+        TimeScalesFactory.getUTC();
+        FramesFactory.getTEME();
+        FramesFactory.getITRF(IERSConventions.IERS_2010, true);
+
+
+
     }
 }
