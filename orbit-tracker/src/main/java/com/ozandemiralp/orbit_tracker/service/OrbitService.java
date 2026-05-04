@@ -33,7 +33,7 @@ public class OrbitService {
     private final Frame teme;
     private final BodyShape earth;
     private final int DEFAULT_STEPS = 100;
-    private final double MAX_DURATION_SECONDS = 864000;
+    private final double MAX_DURATION_SECONDS = 86400;
 
     public Mono<SatelliteCurrentPositionResponseDTO> getCurrentSatellitePosition(SatelliteCurrentPositionRequestDTO request) {
         return tleCacheService.getSatelliteMap(request.satelliteGroup())
